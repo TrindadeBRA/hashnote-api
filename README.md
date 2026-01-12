@@ -276,6 +276,10 @@ composer test
 ### Logs
 Os logs são enviados para `stderr` via Monolog.
 
+## Documentação Adicional
+
+- **[Estado Atual e Migração do Mock](docs/ESTADO_ATUAL_E_MIGRACAO.md)** - Documentação completa sobre o estado atual do projeto, regras de negócio, e caminho para migração do mock para blockchain real.
+
 ## Licença
 
 MIT

@@ -11,7 +11,10 @@
         "vlucas/phpdotenv": "^5.5",
         "monolog/monolog": "^3.5",
         "swagger-api/swagger-ui": "^5.0",
-        "kornrunner/keccak": "^1.1"
+        "kornrunner/keccak": "^1.1",
+        "sc0vu/web3.php": "^0.1",
+        "kornrunner/ethereum-offline-raw-tx": "^0.9",
+        "kornrunner/ethereum-address": "^0.4"
     },
     "require-dev": {
         "phpunit/phpunit": "^10.0"

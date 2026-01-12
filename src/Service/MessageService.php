@@ -44,26 +44,25 @@ class MessageService
         // Tenta registrar na blockchain
         $mode = $_ENV['BLOCKCHAIN_MODE'] ?? 'mock';
         
-        if ($mode === 'mock') {
+        if ($mode === 'mock' || $mode === 'server_sign') {
             try {
                 $txHash = $this->blockchainService->registerMessage($msgHash);
                 $messageObj->txHash = $txHash;
             } catch (\Exception $e) {
                 $this->logger->error("Failed to register message on blockchain", [
                     'error' => $e->getMessage(),
+                    'mode' => $mode,
                 ]);
+                // Em modo server_sign, relança exceção para não criar mensagem sem tx_hash
+                if ($mode === 'server_sign') {
+                    throw $e;
+                }
             }
         } elseif ($mode === 'rpc_only') {
             // Modo rpc_only não suporta escrita
             throw new \RuntimeException(
                 'RPC-only mode does not support writing transactions. ' .
-                'Use mock mode for testing or server_sign mode (not implemented yet).'
-            );
-        } elseif ($mode === 'server_sign') {
-            // Modo server_sign não implementado nesta POC
-            throw new \RuntimeException(
-                'Server-sign mode is not implemented in this POC. ' .
-                'Use mock mode for testing. See README for details.'
+                'Use mock mode for testing or server_sign mode for production.'
             );
         }
 

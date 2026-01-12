@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use HashNote\Infrastructure\Blockchain\MockBlockchainClient;
 use HashNote\Infrastructure\Blockchain\RpcBlockchainClient;
+use HashNote\Infrastructure\Blockchain\ServerSignBlockchainClient;
 use HashNote\Infrastructure\Persistence\MessageRepository;
 use HashNote\Infrastructure\RateLimit\InMemoryRateLimiter;
 use HashNote\Service\BlockchainService;
@@ -42,6 +43,22 @@ return [
     // Blockchain Client
     HashNote\Domain\Blockchain\BlockchainClient::class => function (ContainerInterface $c) {
         $mode = $_ENV['BLOCKCHAIN_MODE'] ?? 'mock';
+        
+        if ($mode === 'server_sign') {
+            $privateKey = $_ENV['BLOCKCHAIN_PRIVATE_KEY'] ?? '';
+            if (empty($privateKey)) {
+                throw new \RuntimeException(
+                    'BLOCKCHAIN_PRIVATE_KEY is required for server_sign mode'
+                );
+            }
+            
+            return new ServerSignBlockchainClient(
+                $_ENV['BLOCKCHAIN_RPC_URL'] ?? 'http://localhost:8545',
+                $privateKey,
+                $_ENV['BLOCKCHAIN_CONTRACT_ADDRESS'] ?? null,
+                $c->get(LoggerInterface::class)
+            );
+        }
         
         if ($mode === 'rpc_only') {
             return new RpcBlockchainClient(

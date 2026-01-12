@@ -1,18 +1,20 @@
 FROM php:8.2-cli-alpine
 
-# Instala dependências de build e runtime
-RUN apk add --no-cache \
-    curl \
-    wget \
-    git \
-    unzip \
-    sqlite \
-    bash \
-    $PHPIZE_DEPS \
-    sqlite-dev
+    # Instala dependências de build e runtime
+    RUN apk add --no-cache \
+        curl \
+        wget \
+        git \
+        unzip \
+        sqlite \
+        bash \
+        gmp \
+        gmp-dev \
+        $PHPIZE_DEPS \
+        sqlite-dev
 
-# Instala extensões PHP necessárias
-RUN docker-php-ext-install pdo pdo_sqlite
+    # Instala extensões PHP necessárias
+    RUN docker-php-ext-install pdo pdo_sqlite gmp
 
 # Remove dependências de build após instalação (mantém sqlite runtime)
 RUN apk del $PHPIZE_DEPS sqlite-dev
