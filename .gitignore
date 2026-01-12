@@ -1,0 +1,9 @@
+/vendor/
+/data/*.sqlite
+/data/*.sqlite-journal
+.env
+.idea/
+.vscode/
+*.log
+composer.lock
+

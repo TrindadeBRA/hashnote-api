@@ -1,0 +1,268 @@
+openapi: 3.0.3
+info:
+  title: HashNote API
+  description: API minimalista para registrar mensagens curtas na blockchain
+  version: 1.0.0
+  contact:
+    name: HashNote API Support
+
+servers:
+  - url: http://localhost:8000
+    description: Servidor local de desenvolvimento
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Retorna status da API, versão e modo blockchain
+      operationId: getHealth
+      tags:
+        - Health
+      responses:
+        '200':
+          description: API está funcionando
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  version:
+                    type: string
+                    example: 1.0.0
+                  blockchain_mode:
+                    type: string
+                    example: mock
+
+  /v1/messages:
+    post:
+      summary: Criar nova mensagem
+      description: Registra uma mensagem curta na blockchain (ou simula no modo mock)
+      operationId: createMessage
+      tags:
+        - Messages
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+                  minLength: 1
+                  maxLength: 280
+                  description: Mensagem a ser registrada (1-280 caracteres)
+                  example: "Hello, blockchain!"
+      responses:
+        '201':
+          description: Mensagem criada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Erro de validação
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit excedido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/messages/{id}:
+    get:
+      summary: Obter mensagem por ID
+      description: Retorna os detalhes de uma mensagem, atualizando status se necessário
+      operationId: getMessage
+      tags:
+        - Messages
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID da mensagem
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Mensagem encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '404':
+          description: Mensagem não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/messages/{id}/verify:
+    get:
+      summary: Verificar mensagem na blockchain
+      description: Verifica se a transação existe e está confirmada na blockchain
+      operationId: verifyMessage
+      tags:
+        - Messages
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: UUID da mensagem
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Resultado da verificação
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResult'
+        '404':
+          description: Mensagem não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/jobs/tick:
+    post:
+      summary: Processar jobs pendentes (POC)
+      description: Executa processamento de mensagens mock pendentes. Requer autenticação via header X-Job-Token
+      operationId: tickJobs
+      tags:
+        - Jobs
+      security:
+        - JobToken: []
+      responses:
+        '200':
+          description: Jobs processados
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  processed:
+                    type: integer
+                    description: Número de mensagens processadas
+                    example: 3
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2024-01-15T10:30:00Z"
+        '401':
+          description: Token inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: UUID único da mensagem
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        message:
+          type: string
+          description: Conteúdo da mensagem
+          example: "Hello, blockchain!"
+        msg_hash:
+          type: string
+          description: Hash SHA3-256 da mensagem (0x...)
+          example: "0x1234567890abcdef..."
+        tx_hash:
+          type: string
+          nullable: true
+          description: Hash da transação blockchain (0x...)
+          example: "0xabcdef1234567890..."
+        status:
+          type: string
+          enum: [pending, confirmed, failed]
+          description: Status da transação
+          example: "confirmed"
+        block_number:
+          type: integer
+          nullable: true
+          description: Número do bloco onde foi confirmada
+          example: 12345678
+        confirmed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Data/hora de confirmação
+          example: "2024-01-15T10:30:00Z"
+        created_at:
+          type: string
+          format: date-time
+          description: Data/hora de criação
+          example: "2024-01-15T10:25:00Z"
+
+    VerificationResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+          description: Se a transação é válida e confirmada
+          example: true
+        status:
+          type: string
+          description: Status atual da mensagem
+          example: "confirmed"
+        tx_hash:
+          type: string
+          nullable: true
+          description: Hash da transação
+          example: "0xabcdef1234567890..."
+        network:
+          type: string
+          description: Nome da rede blockchain
+          example: "localhost"
+        contract_address:
+          type: string
+          nullable: true
+          description: Endereço do contrato (se configurado)
+          example: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+        block_number:
+          type: integer
+          nullable: true
+          description: Número do bloco
+          example: 12345678
+        msg_hash_matches:
+          type: boolean
+          nullable: true
+          description: Se o msg_hash corresponde (modo RPC)
+          example: true
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Mensagem de erro
+          example: "Message not found"
+
+  securitySchemes:
+    JobToken:
+      type: apiKey
+      in: header
+      name: X-Job-Token
+      description: Token para autenticação de jobs (configurado via JOB_TOKEN no .env)
+

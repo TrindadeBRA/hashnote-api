@@ -1,0 +1,30 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hashnote-api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Monta apenas diretórios específicos (não sobrescreve vendor)
+      - ./config:/var/www/html/config
+      - ./src:/var/www/html/src
+      - ./public:/var/www/html/public
+      - ./swagger:/var/www/html/swagger
+      - ./scripts:/var/www/html/scripts
+      # Monta .env se existir
+      - ./.env:/var/www/html/.env:ro
+      # Persiste banco de dados
+      - ./data:/var/www/html/data
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - DB_PATH=/var/www/html/data/app.sqlite
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+

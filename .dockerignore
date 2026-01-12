@@ -1,0 +1,14 @@
+vendor/
+data/*.sqlite
+data/*.sqlite-journal
+.env
+.idea/
+.vscode/
+*.log
+.git/
+.gitignore
+README.md
+docker-compose.yml
+Dockerfile
+.dockerignore
+
