@@ -46,17 +46,37 @@ class ServerSignBlockchainClient implements BlockchainClient
 
     public function registerMessage(string $msgHash): string
     {
+        $this->logger?->info("[BLOCKCHAIN] Iniciando registro de mensagem", [
+            'msg_hash' => $msgHash,
+            'from_address' => $this->fromAddress,
+            'has_contract' => $this->contractAddress !== null,
+        ]);
+
         try {
             // 1. Obter nonce atual
+            $this->logger?->info("[BLOCKCHAIN] Step 1: Obtendo nonce", [
+                'address' => $this->fromAddress,
+            ]);
             $nonce = $this->getNonce($this->fromAddress);
+            $this->logger?->info("[BLOCKCHAIN] Step 1: Nonce obtido", [
+                'nonce' => $nonce,
+            ]);
             
             // 2. Obter gas price
+            $this->logger?->info("[BLOCKCHAIN] Step 2: Obtendo gas price");
             $gasPrice = $this->getGasPrice();
+            $this->logger?->info("[BLOCKCHAIN] Step 2: Gas price obtido", [
+                'gas_price' => $gasPrice,
+            ]);
             
             // 3. Estimar gas (se usar contrato) ou usar valor padrão
             $gasLimit = $this->contractAddress 
                 ? $this->estimateGas($msgHash, $nonce, $gasPrice)
                 : '0x5208'; // 21000 para transfer simples
+            $this->logger?->info("[BLOCKCHAIN] Step 3: Gas limit definido", [
+                'gas_limit' => $gasLimit,
+                'estimated' => $this->contractAddress !== null,
+            ]);
             
             // 4. Criar transação
             $transaction = [
@@ -70,24 +90,44 @@ class ServerSignBlockchainClient implements BlockchainClient
                     : $msgHash, // Se não tem contrato, envia msg_hash como data
                 'chainId' => $this->getChainId(),
             ];
+            $this->logger?->info("[BLOCKCHAIN] Step 4: Transação criada", [
+                'nonce' => $transaction['nonce'],
+                'to' => $transaction['to'],
+                'gas_price' => $gasPrice,
+                'gas_limit' => $gasLimit,
+                'data_preview' => substr($transaction['data'], 0, 50) . '...',
+            ]);
 
             // 5. Assinar transação
+            $this->logger?->info("[BLOCKCHAIN] Step 5: Assinando transação");
             $signedTx = $this->signTransaction($transaction);
+            $this->logger?->info("[BLOCKCHAIN] Step 5: Transação assinada", [
+                'signed_tx_preview' => substr($signedTx, 0, 50) . '...',
+                'signed_tx_length' => strlen($signedTx),
+            ]);
             
             // 6. Enviar transação
+            $this->logger?->info("[BLOCKCHAIN] Step 6: Enviando transação para blockchain");
             $txHash = $this->sendRawTransaction($signedTx);
+            $this->logger?->info("[BLOCKCHAIN] Step 6: Transação enviada com sucesso", [
+                'tx_hash' => $txHash,
+            ]);
             
-            $this->logger?->info("Message registered on blockchain", [
+            $this->logger?->info("[BLOCKCHAIN] Mensagem registrada na blockchain", [
                 'msg_hash' => $msgHash,
                 'tx_hash' => $txHash,
                 'nonce' => $nonce,
+                'gas_price' => $gasPrice,
+                'gas_limit' => $gasLimit,
             ]);
 
             return $txHash;
         } catch (\Exception $e) {
-            $this->logger?->error("Failed to register message", [
+            $this->logger?->error("[BLOCKCHAIN] Falha ao registrar mensagem", [
                 'msg_hash' => $msgHash,
                 'error' => $e->getMessage(),
+                'error_class' => get_class($e),
+                'trace' => $e->getTraceAsString(),
             ]);
             throw $e;
         }
@@ -119,25 +159,77 @@ class ServerSignBlockchainClient implements BlockchainClient
 
     private function getNonce(string $address): int
     {
-        $response = $this->rpcCall('eth_getTransactionCount', [$address, 'latest']);
+        // Usa 'pending' para incluir transações pendentes na mempool
+        // Isso garante que cada nova transação use um nonce único
+        $this->logger?->info("[BLOCKCHAIN] RPC: eth_getTransactionCount", [
+            'address' => $address,
+            'block' => 'pending',
+        ]);
+        
+        $response = $this->rpcCall('eth_getTransactionCount', [$address, 'pending']);
         
         if (!$response || !isset($response['result'])) {
+            $this->logger?->error("[BLOCKCHAIN] RPC: eth_getTransactionCount falhou", [
+                'address' => $address,
+                'response' => $response,
+            ]);
             throw new \RuntimeException("Failed to get nonce");
         }
         
-        return (int)hexdec(substr($response['result'], 2));
+        $nonce = (int)hexdec(substr($response['result'], 2));
+        $this->logger?->info("[BLOCKCHAIN] RPC: eth_getTransactionCount resposta", [
+            'address' => $address,
+            'nonce_hex' => $response['result'],
+            'nonce_dec' => $nonce,
+            'block' => 'pending',
+            'note' => 'Inclui transações pendentes na mempool',
+        ]);
+        
+        return $nonce;
     }
 
     private function getGasPrice(): string
     {
+        $this->logger?->info("[BLOCKCHAIN] RPC: eth_gasPrice");
+        
         $response = $this->rpcCall('eth_gasPrice', []);
         
+        // Gas price mínimo para Sepolia (2 gwei) para garantir que transações sejam aceitas
+        $minGasPriceGwei = 2.0;
+        $minGasPriceWei = (int)($minGasPriceGwei * 1e9);
+        $minGasPriceHex = '0x' . dechex($minGasPriceWei);
+        
         if ($response && isset($response['result'])) {
-            return $response['result'];
+            $gasPrice = $response['result'];
+            $gasPriceWei = hexdec(substr($gasPrice, 2));
+            $gasPriceGwei = $gasPriceWei / 1e9;
+            
+            // Se o gas price da rede for menor que o mínimo, usa o mínimo
+            if ($gasPriceWei < $minGasPriceWei) {
+                $this->logger?->info("[BLOCKCHAIN] RPC: eth_gasPrice resposta (abaixo do mínimo, usando mínimo)", [
+                    'gas_price_rede_hex' => $gasPrice,
+                    'gas_price_rede_gwei' => round($gasPriceGwei, 2),
+                    'gas_price_minimo_hex' => $minGasPriceHex,
+                    'gas_price_minimo_gwei' => $minGasPriceGwei,
+                    'gas_price_final_hex' => $minGasPriceHex,
+                    'gas_price_final_gwei' => $minGasPriceGwei,
+                ]);
+                return $minGasPriceHex;
+            }
+            
+            $this->logger?->info("[BLOCKCHAIN] RPC: eth_gasPrice resposta", [
+                'gas_price_hex' => $gasPrice,
+                'gas_price_gwei' => round($gasPriceGwei, 2),
+            ]);
+            return $gasPrice;
         }
         
-        // Fallback: gas price padrão para testnet (20 gwei)
-        return '0x4a817c800'; // 20 gwei em hex
+        // Fallback: gas price mínimo para testnet (2 gwei)
+        $this->logger?->warning("[BLOCKCHAIN] RPC: eth_gasPrice falhou, usando mínimo", [
+            'fallback_gas_price' => $minGasPriceHex,
+            'fallback_gwei' => $minGasPriceGwei,
+        ]);
+        return $minGasPriceHex;
     }
 
     private function estimateGas(string $msgHash, int $nonce, string $gasPrice): string
@@ -224,14 +316,31 @@ class ServerSignBlockchainClient implements BlockchainClient
 
     private function sendRawTransaction(string $signedTx): string
     {
-        $response = $this->rpcCall('eth_sendRawTransaction', ['0x' . $signedTx]);
+        $signedTxWithPrefix = '0x' . $signedTx;
+        $this->logger?->info("[BLOCKCHAIN] RPC: eth_sendRawTransaction", [
+            'signed_tx_length' => strlen($signedTxWithPrefix),
+            'signed_tx_preview' => substr($signedTxWithPrefix, 0, 50) . '...',
+        ]);
+        
+        $response = $this->rpcCall('eth_sendRawTransaction', [$signedTxWithPrefix]);
         
         if (!$response || !isset($response['result'])) {
             $error = $response['error']['message'] ?? 'Unknown error';
+            $errorCode = $response['error']['code'] ?? 'unknown';
+            $this->logger?->error("[BLOCKCHAIN] RPC: eth_sendRawTransaction falhou", [
+                'error_code' => $errorCode,
+                'error_message' => $error,
+                'error_full' => json_encode($response['error'] ?? []),
+            ]);
             throw new \RuntimeException("Failed to send transaction: $error");
         }
         
-        return $response['result'];
+        $txHash = $response['result'];
+        $this->logger?->info("[BLOCKCHAIN] RPC: eth_sendRawTransaction sucesso", [
+            'tx_hash' => $txHash,
+        ]);
+        
+        return $txHash;
     }
 
     private function deriveAddressFromPrivateKey(string $privateKey): string
@@ -269,6 +378,7 @@ class ServerSignBlockchainClient implements BlockchainClient
 
     private function rpcCall(string $method, array $params = []): ?array
     {
+        $startTime = microtime(true);
         $data = [
             'jsonrpc' => '2.0',
             'method' => $method,
@@ -276,42 +386,73 @@ class ServerSignBlockchainClient implements BlockchainClient
             'id' => 1,
         ];
 
+        $this->logger?->debug("[BLOCKCHAIN] RPC Call iniciado", [
+            'method' => $method,
+            'params' => $params,
+            'url' => $this->rpcUrl,
+        ]);
+
         $ch = curl_init($this->rpcUrl);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST => true,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
             CURLOPT_POSTFIELDS => json_encode($data),
+            CURLOPT_TIMEOUT => 30,
         ]);
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        $duration = round((microtime(true) - $startTime) * 1000, 2);
         curl_close($ch);
 
         if ($httpCode !== 200 || !$response) {
-            $this->logger?->error("RPC call failed", [
+            $this->logger?->error("[BLOCKCHAIN] RPC Call falhou - HTTP", [
                 'method' => $method,
                 'http_code' => $httpCode,
+                'curl_error' => $curlError,
+                'duration_ms' => $duration,
+                'url' => $this->rpcUrl,
             ]);
             return null;
         }
 
         $decoded = json_decode($response, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
-            $this->logger?->error("RPC response parse error", [
+            $this->logger?->error("[BLOCKCHAIN] RPC Call falhou - Parse JSON", [
                 'method' => $method,
                 'error' => json_last_error_msg(),
+                'response_preview' => substr($response, 0, 200),
+                'duration_ms' => $duration,
             ]);
             return null;
         }
 
         if (isset($decoded['error'])) {
-            $this->logger?->error("RPC error", [
+            $errorCode = $decoded['error']['code'] ?? 'unknown';
+            $errorMessage = $decoded['error']['message'] ?? json_encode($decoded['error']);
+            
+            $this->logger?->error("[BLOCKCHAIN] RPC Call erro retornado", [
                 'method' => $method,
-                'error' => $decoded['error'],
+                'params' => $params,
+                'error_code' => $errorCode,
+                'error_message' => $errorMessage,
+                'error_full' => json_encode($decoded['error']),
+                'duration_ms' => $duration,
             ]);
-            return null;
+            // Retorna o array com o erro para que o chamador possa tratá-lo
+            return $decoded;
         }
+
+        $this->logger?->debug("[BLOCKCHAIN] RPC Call sucesso", [
+            'method' => $method,
+            'has_result' => isset($decoded['result']),
+            'result_preview' => isset($decoded['result']) && is_string($decoded['result']) 
+                ? substr($decoded['result'], 0, 50) . '...' 
+                : (isset($decoded['result']) ? gettype($decoded['result']) : 'null'),
+            'duration_ms' => $duration,
+        ]);
 
         return $decoded;
     }

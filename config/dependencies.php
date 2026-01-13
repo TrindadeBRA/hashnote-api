@@ -101,7 +101,8 @@ return [
 
     HashNote\Controller\MessageController::class => function (ContainerInterface $c) {
         return new HashNote\Controller\MessageController(
-            $c->get(MessageService::class)
+            $c->get(MessageService::class),
+            $c->get(LoggerInterface::class)
         );
     },
 
